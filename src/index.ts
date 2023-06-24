@@ -8,6 +8,8 @@ import { createAccount } from "@tokenbound/sdk-ethers";
 import mongoose from "mongoose";
 import { MongoClient, ServerApiVersion } from "mongodb";
 
+import axios from "axios";
+
 dotenv.config();
 const FACTORY_CONTRACT_ADDRESS = "0x3C202ed68e775B48F78220FF94E2A41A129ddd66";
 
@@ -32,6 +34,16 @@ async function connectMongoDB() {
     console.log("You successfully connected to MongoDB!");
   } catch (error) {
     console.error("Could not connect to MongoDB:", error);
+  }
+}
+async function getGasPrice() {
+  try {
+    const response = await axios.get(
+      "https://gasstation.polygon.technology/v2"
+    );
+    return response.data;
+  } catch (error) {
+    console.error(error);
   }
 }
 
@@ -76,10 +88,17 @@ app.post("/mint", async (req: Request, res: Response) => {
   }
 
   try {
-    const tx = await nftContract.safeMint(
-      //mint to ourselves for now
-      recipientAddress
-    );
+    const gasPrices = await getGasPrice();
+    const tx = await nftContract.safeMint(recipientAddress, {
+      maxPriorityFeePerGas: ethers.utils.parseUnits(
+        gasPrices.standard.maxPriorityFee.toString(),
+        "gwei"
+      ),
+      maxFeePerGas: ethers.utils.parseUnits(
+        gasPrices.standard.maxFee.toString(),
+        "gwei"
+      ),
+    });
     const receipt = await tx.wait();
 
     let tokenId: ethers.BigNumber;
@@ -131,9 +150,20 @@ app.post("/create-collection", async (req: Request, res: Response) => {
   );
 
   try {
+    const gasPrices = await getGasPrice();
     const tx = await factoryContract.createCollection(
       collectionName,
-      collectionColor
+      collectionColor,
+      {
+        maxPriorityFeePerGas: ethers.utils.parseUnits(
+          gasPrices.standard.maxPriorityFee.toString(),
+          "gwei"
+        ),
+        maxFeePerGas: ethers.utils.parseUnits(
+          gasPrices.standard.maxFee.toString(),
+          "gwei"
+        ),
+      }
     );
     const receipt = await tx.wait();
 
