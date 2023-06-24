@@ -163,6 +163,16 @@ app.post("/create-collection", async (req: Request, res: Response) => {
   }
 });
 
+app.get("/collections", async (req: Request, res: Response) => {
+  try {
+    const collections = await NFTCollection.find();
+    res.json(collections);
+  } catch (error) {
+    console.error("Error fetching collections:", error);
+    res.json({ success: false });
+  }
+});
+
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
