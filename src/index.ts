@@ -15,7 +15,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 const mongoPass = process.env.MONGO_PASS;
-const provider = new ethers.providers.JsonRpcProvider(process.env.SEPOLIA_URL);
+const provider = new ethers.providers.JsonRpcProvider(process.env.POLYGON_URL);
 
 const uri = `mongodb+srv://kavin1810:${mongoPass}@cluster0.fvj4tpc.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, {
