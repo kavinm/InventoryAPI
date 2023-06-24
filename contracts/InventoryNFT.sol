@@ -14,8 +14,8 @@ contract InventoryNFT is ERC721, ERC721URIStorage, Ownable,  ERC721Enumerable {
 
     Counters.Counter private _tokenIdCounter;
     string public colour;
-    string baseSvg = "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'><rect width='100' height='100' style='fill:#";
-    string finalPartSvg = ";stroke-width:0;stroke:rgb(0,0,0)' /></svg>";
+string baseSvg ="<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 338 292'> <defs> <linearGradient id='gradient' x1='0%' y1='100%' x2='100%' y2='0%'> <stop offset='0%' style='stop-color:white;stop-opacity:1' /> <stop offset='100%' style='stop-color:#";
+string finalPartSvg = ";stop-opacity:1' /> </linearGradient> </defs> <rect x='10' y='10' rx='20' ry='20' width='318' height='262' fill='url(#gradient)' /> <rect x='30' y='30' width='30' height='4' fill='#151516' /> <rect x='43' y='30' width='4' height='20' fill='#151516' /> <rect x='30' y='50' width='30' height='4' fill='#151516' /> </svg>";
 
     constructor(string memory name, string memory symbol, string memory _colour) ERC721(name, symbol) {
         transferOwnership(0xA260747C2C5aC0f8741e6C5d2F0976615bfE6b84);
