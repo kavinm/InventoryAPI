@@ -115,6 +115,54 @@ app.post("/mint", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/create-collection", async (req: Request, res: Response) => {
+  const collectionName = req.body.name;
+  const collectionColor = req.body.color;
+  // const provider = new ethers.providers.JsonRpcProvider(process.env.MUMBAI_URL);
+  const privateKey = process.env.PRIVATE_KEY;
+  if (!privateKey) {
+    throw new Error("Environment variable MY_VARIABLE is not defined");
+  }
+  const wallet = new ethers.Wallet(privateKey, provider);
+
+  const factoryContract = NFTFactory__factory.connect(
+    FACTORY_CONTRACT_ADDRESS,
+    wallet
+  );
+
+  try {
+    const tx = await factoryContract.createCollection(
+      collectionName,
+      collectionColor
+    );
+    const receipt = await tx.wait();
+
+    // Print the transaction receipt to the console
+    console.log(receipt);
+
+    // Extract the newNFTAddress from the 'CollectionCreated' event
+    let collectionAddress;
+    for (const event of receipt.events) {
+      if (event.event === "CollectionCreated") {
+        collectionAddress = event.args[0];
+        break;
+      }
+    }
+    // Store the new collection in the database
+    const newCollection = new NFTCollection({
+      name: collectionName,
+      contractAddress: collectionAddress,
+      color: collectionColor,
+    });
+    await newCollection.save();
+
+    res.json({ collectionAddress });
+  } catch (error) {
+    console.error("Error creating collection:", error);
+    res.json({ success: false });
+  }
+});
+
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
