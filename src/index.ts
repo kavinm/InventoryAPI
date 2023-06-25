@@ -61,6 +61,7 @@ export const NFTCollection = mongoose.model(
 );
 
 app.post("/mint", async (req: Request, res: Response) => {
+  let receipt: any;
   //const provider = new ethers.providers.JsonRpcProvider(process.env.MUMBAI_URL);
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) {
@@ -89,17 +90,22 @@ app.post("/mint", async (req: Request, res: Response) => {
 
   try {
     const gasPrices = await getGasPrice();
+
+    const maxPriorityFeePerGas = ethers.utils.parseUnits(
+      Math.round(gasPrices.standard.maxPriorityFee + 10).toString(),
+      "gwei"
+    );
+
+    const maxFeePerGas = ethers.utils.parseUnits(
+      Math.round(gasPrices.standard.maxFee + 10).toString(),
+      "gwei"
+    );
+
     const tx = await nftContract.safeMint(recipientAddress, {
-      maxPriorityFeePerGas: ethers.utils.parseUnits(
-        gasPrices.standard.maxPriorityFee.toString(),
-        "gwei"
-      ),
-      maxFeePerGas: ethers.utils.parseUnits(
-        gasPrices.standard.maxFee.toString(),
-        "gwei"
-      ),
+      maxPriorityFeePerGas: maxPriorityFeePerGas,
+      maxFeePerGas: maxFeePerGas,
     });
-    const receipt = await tx.wait();
+    receipt = await tx.wait();
 
     let tokenId: ethers.BigNumber;
 
@@ -128,9 +134,45 @@ app.post("/mint", async (req: Request, res: Response) => {
 
     // If successful, include hash in the response
     res.json({ tokenId: tokenId.toString(), hash });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error minting token or creating account:", error);
-    res.json({ success: false });
+    if (
+      error &&
+      typeof error === "object" &&
+      error.code === "SERVER_ERROR" &&
+      error.error &&
+      error.error.code === -32000 &&
+      error.error.message === "transaction underpriced"
+    ) {
+      let tokenId: ethers.BigNumber;
+
+      // Loop through the events and find the Transfer event to get the tokenId.
+      for (const event of receipt.events!) {
+        if (event.event === "Transfer") {
+          tokenId = event.args![2];
+          break;
+        }
+      }
+      console.log("Caught underpriced transaction error, returning success");
+      const signer = wallet.connect(provider);
+
+      try {
+        const { hash } = await createAccount(
+          contractAddress,
+          tokenId.toString(),
+          signer
+        );
+        res.json({ tokenId: tokenId.toString(), hash });
+        return;
+      } catch (error: any) {
+        console.error("Error creating account:", error);
+        res.json({ success: false, error: "Error creating account" });
+        return;
+      }
+    } else {
+      // This is some other error, handle it as you were before
+      res.json({ success: false });
+    }
   }
 });
 
