@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { ethers } from "ethers";
 import { InventoryNFT__factory } from "../typechain-types";
 import { NFTFactory__factory } from "../typechain-types";
+import { TokenboundClient } from "@tokenbound/sdk";
 import { createAccount } from "@tokenbound/sdk-ethers";
 import mongoose from "mongoose";
 import { MongoClient, ServerApiVersion } from "mongodb";
@@ -11,13 +12,13 @@ import { MongoClient, ServerApiVersion } from "mongodb";
 import axios from "axios";
 
 dotenv.config();
-const FACTORY_CONTRACT_ADDRESS = "0x3C202ed68e775B48F78220FF94E2A41A129ddd66";
+const FACTORY_CONTRACT_ADDRESS = "0xB5212B4b6676D4A5978Ec0230976A1303fE25621";
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 const mongoPass = process.env.MONGO_PASS;
-const provider = new ethers.providers.JsonRpcProvider(process.env.POLYGON_URL);
+const provider = new ethers.providers.JsonRpcProvider(process.env.SEPOLIA_URL);
 
 const uri = `mongodb+srv://kavin1810:${mongoPass}@cluster0.fvj4tpc.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, {
@@ -59,17 +60,23 @@ export const NFTCollection = mongoose.model(
   "NFTCollection",
   NFTCollectionSchema
 );
+// Define getLatestTokenId method
+async function getLatestTokenId(contractAddress: string) {
+  const abi = ["function totalSupply() view returns (uint256)"];
+  const contract = new ethers.Contract(contractAddress, abi, provider);
+  const totalSupply = await contract.totalSupply();
+  const latestTokenId = totalSupply.sub(1);
+  console.log("Latest Token ID:", latestTokenId.toString());
+  return latestTokenId;
+}
 
-app.post("/mint", async (req: Request, res: Response) => {
+async function mintNFT(req: Request, res: Response) {
   let receipt: any;
-  //const provider = new ethers.providers.JsonRpcProvider(process.env.MUMBAI_URL);
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) {
     throw new Error("Environment variable MY_VARIABLE is not defined");
   }
   const wallet = new ethers.Wallet(privateKey, provider);
-
-  // Get contract address from the request body
   const contractAddress = req.body.contractAddress;
 
   if (!ethers.utils.isAddress(contractAddress)) {
@@ -78,8 +85,6 @@ app.post("/mint", async (req: Request, res: Response) => {
   }
 
   const nftContract = InventoryNFT__factory.connect(contractAddress, wallet);
-
-  // Ensure that an address is provided
   const recipientAddress = req.body.address;
   if (!ethers.utils.isAddress(recipientAddress)) {
     res
@@ -101,41 +106,14 @@ app.post("/mint", async (req: Request, res: Response) => {
       "gwei"
     );
 
-    const tx = await nftContract.safeMint(recipientAddress, {
+    const txn = await nftContract.safeMint(recipientAddress, {
       maxPriorityFeePerGas: maxPriorityFeePerGas,
       maxFeePerGas: maxFeePerGas,
     });
-    receipt = await tx.wait();
 
-    let tokenId: ethers.BigNumber;
-
-    // Loop through the events and find the Transfer event to get the tokenId.
-    for (const event of receipt.events!) {
-      if (event.event === "Transfer") {
-        tokenId = event.args![2];
-        break;
-      }
-    }
-
-    // If no Transfer event was found, send an error response
-    if (!tokenId) {
-      res.json({ success: false, error: "No Transfer event found" });
-      return;
-    }
-
-    // Assuming signer is defined in your environment
-    const signer = wallet.connect(provider);
-
-    const { hash } = await createAccount(
-      contractAddress,
-      tokenId.toString(),
-      signer
-    );
-
-    // If successful, include hash in the response
-    res.json({ tokenId: tokenId.toString(), hash });
+    receipt = await txn.wait();
   } catch (error: any) {
-    console.error("Error minting token or creating account:", error);
+    console.error("Error minting token:", error);
     if (
       error &&
       typeof error === "object" &&
@@ -144,37 +122,39 @@ app.post("/mint", async (req: Request, res: Response) => {
       error.error.code === -32000 &&
       error.error.message === "transaction underpriced"
     ) {
-      let tokenId: ethers.BigNumber;
-
-      // Loop through the events and find the Transfer event to get the tokenId.
-      for (const event of receipt.events!) {
-        if (event.event === "Transfer") {
-          tokenId = event.args![2];
-          break;
-        }
-      }
-      console.log("Caught underpriced transaction error, returning success");
-      const signer = wallet.connect(provider);
-
-      try {
-        const { hash } = await createAccount(
-          contractAddress,
-          tokenId.toString(),
-          signer
-        );
-        res.json({ tokenId: tokenId.toString(), hash });
-        return;
-      } catch (error: any) {
-        console.error("Error creating account:", error);
-        res.json({ success: false, error: "Error creating account" });
-        return;
-      }
+      console.log(
+        "Transaction underpriced, but continuing to create account..."
+      );
     } else {
-      // This is some other error, handle it as you were before
-      res.json({ success: false });
+      // If it's a different error, rethrow it
+      throw error;
     }
   }
-});
+  // Get the latest token ID regardless of whether an error occurred
+  const latestTokenId = await getLatestTokenId(contractAddress);
+  console.log("this is the latestTokenId:" + latestTokenId);
+
+  // Assuming signer is defined in your environment
+  const signer = wallet.connect(provider);
+
+  const tokenboundClient = new TokenboundClient({ signer, chainId: 137 });
+
+  const hash = await tokenboundClient.createAccount({
+    tokenContract: contractAddress,
+    tokenId: latestTokenId.toString(),
+  });
+
+  console.log(hash);
+
+  res.status(200).json({
+    success: true,
+    txHash: receipt ? receipt.transactionHash : "N/A",
+    tokenId: latestTokenId.toString(),
+    hash,
+  });
+}
+
+app.post("/mint", mintNFT);
 
 app.post("/create-collection", async (req: Request, res: Response) => {
   const collectionName = req.body.name;
@@ -192,20 +172,10 @@ app.post("/create-collection", async (req: Request, res: Response) => {
   );
 
   try {
-    const gasPrices = await getGasPrice();
+    // const gasPrices = await getGasPrice();
     const tx = await factoryContract.createCollection(
       collectionName,
-      collectionColor,
-      {
-        maxPriorityFeePerGas: ethers.utils.parseUnits(
-          gasPrices.standard.maxPriorityFee.toString(),
-          "gwei"
-        ),
-        maxFeePerGas: ethers.utils.parseUnits(
-          gasPrices.standard.maxFee.toString(),
-          "gwei"
-        ),
-      }
+      collectionColor
     );
     const receipt = await tx.wait();
 
@@ -242,6 +212,59 @@ app.get("/collections", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error fetching collections:", error);
     res.json({ success: false });
+  }
+});
+
+app.post("/verify-and-mint", async (req: Request, res: Response) => {
+  // Extract necessary fields from the request body
+  const {
+    nullifier_hash,
+    merkle_root,
+    proof,
+    credential_type,
+    action,
+    signal,
+    address,
+    contractAddress,
+  } = req.body;
+
+  // Make the fetch request to the Worldcoin API
+  const worldcoinResponse = await axios.post(
+    "https://developer.worldcoin.org//api/v1/verify/app_staging_204d7dd2d44ec1f37d0f6ecd4004789c",
+    {
+      nullifier_hash,
+      merkle_root,
+      proof,
+      credential_type,
+      action,
+      signal,
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  // Parse the response from the Worldcoin API
+  const worldcoinData = worldcoinResponse.data;
+
+  // If the response was successful, call the mint function
+  // If the response was successful, call the mint function
+  if (worldcoinData.success) {
+    // Construct the request body for the mint function
+    const mintReq = {
+      body: {
+        contractAddress, // Replace with the correct contract address
+        address,
+      },
+    };
+
+    // Call the mint function
+    await mintNFT(mintReq as any, res);
+  } else {
+    // If the response was not successful, return an error
+    res.status(400).json({ success: false, error: "Verification failed" });
   }
 });
 

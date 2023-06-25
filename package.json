@@ -26,6 +26,7 @@
   "dependencies": {
     "@nomiclabs/hardhat-ethers": "^2.2.3",
     "@openzeppelin/contracts": "^4.9.0",
+    "@tokenbound/sdk": "^0.3.0",
     "@tokenbound/sdk-ethers": "^0.2.0",
     "axios": "^1.4.0",
     "cors": "^2.8.5",
